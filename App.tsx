@@ -23,6 +23,7 @@ import {
 const App: React.FC = () => {
   const store = useAppStore();
   const [progress, setProgress] = useState(0);
+  const [statusMessage, setStatusMessage] = useState('');
 
   const getCachedText = async (file: File): Promise<string> => {
     if (store.pdfTextCache[file.name]) {
@@ -81,13 +82,15 @@ const App: React.FC = () => {
     store.setProcessing(true);
     store.setError(null);
     setProgress(0);
+    setStatusMessage('ドキュメントのテキストを準備中...');
+    
     try {
       const filesToProcess = store.noticeFile ? [store.noticeFile, ...store.evidenceFiles] : store.evidenceFiles;
       
       const textsToProcess: { name: string, text: string }[] = [];
       for (let i = 0; i < filesToProcess.length; i++) {
         const file = filesToProcess[i];
-        setProgress(Math.round(((i + 0.1) / filesToProcess.length) * 100)); // 抽出開始
+        setStatusMessage(`${file.name} を読み込み中...`);
         const text = await getCachedText(file);
         textsToProcess.push({ name: file.name, text });
       }
@@ -96,7 +99,10 @@ const App: React.FC = () => {
         textsToProcess, 
         store.agendaItems, 
         store.indicators,
-        (current, total) => setProgress(Math.round((current / total) * 100))
+        (current, total, msg) => {
+          setProgress(Math.round((current / total) * 100));
+          if (msg) setStatusMessage(msg);
+        }
       );
       
       store.setFacts(allFacts);
@@ -107,6 +113,7 @@ const App: React.FC = () => {
     } finally {
       store.setProcessing(false);
       setProgress(0);
+      setStatusMessage('');
     }
   };
 
@@ -319,10 +326,15 @@ const App: React.FC = () => {
           {/* STEP 3: Data Extraction */}
           {store.currentStep === Step.DATA_EXTRACTION && (
             <div className="space-y-6 animate-in slide-in-from-right-4">
-              <h2 className="text-2xl font-bold text-slate-800 mb-2 flex items-center gap-2">
-                <FileTextIcon className="text-blue-600" />
-                Step 3: 数値・事実情報の抽出
-              </h2>
+              <div className="flex items-center justify-between mb-2">
+                <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
+                  <FileTextIcon className="text-blue-600" />
+                  Step 3: 数値・事実情報の抽出
+                </h2>
+                <div className="bg-amber-100 text-amber-800 text-[10px] font-bold px-2 py-1 rounded-md border border-amber-200">
+                  高精度解析モード: 資料を細分化してスキャンします
+                </div>
+              </div>
               <p className="text-slate-500 text-sm mb-6">有価証券報告書やCG報告書などの資料を読み込ませ、各ファイルごとに数値を検索します。</p>
               
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -397,13 +409,19 @@ const App: React.FC = () => {
                   </div>
                   
                   {store.isProcessing && (
-                    <div className="bg-blue-600/10 p-4 rounded-xl border border-blue-200 animate-pulse">
-                      <div className="flex justify-between items-center mb-2">
-                        <span className="text-sm font-bold text-blue-700">AIがファイルごとに解析中...</span>
+                    <div className="bg-blue-600/10 p-5 rounded-2xl border border-blue-200 shadow-inner">
+                      <div className="flex justify-between items-center mb-3">
+                        <span className="text-xs font-black text-blue-700 uppercase tracking-widest">AI分析中...</span>
                         <span className="text-sm font-bold text-blue-700">{progress}%</span>
                       </div>
-                      <div className="w-full bg-slate-200 rounded-full h-2">
-                        <div className="bg-blue-600 h-2 rounded-full transition-all duration-300" style={{ width: `${progress}%` }}></div>
+                      <div className="w-full bg-slate-200 rounded-full h-3 mb-4 overflow-hidden">
+                        <div className="bg-blue-600 h-full rounded-full transition-all duration-500 shadow-sm" style={{ width: `${progress}%` }}></div>
+                      </div>
+                      <div className="flex items-start gap-3 p-3 bg-white/50 rounded-xl border border-blue-100/50">
+                        <div className="mt-1 animate-spin w-3 h-3 border-2 border-blue-600 border-t-transparent rounded-full shrink-0"></div>
+                        <p className="text-[11px] text-blue-800 leading-relaxed font-medium">
+                          {statusMessage || "精密スキャン準備中..."}
+                        </p>
                       </div>
                     </div>
                   )}
@@ -417,7 +435,7 @@ const App: React.FC = () => {
                   disabled={store.isProcessing}
                   className="bg-blue-600 hover:bg-blue-700 disabled:bg-slate-200 text-white font-bold py-4 px-10 rounded-2xl flex items-center gap-2 transition-all shadow-lg"
                 >
-                  {store.isProcessing ? '事実情報を抽出中...' : '抽出プロセスを開始'}
+                  {store.isProcessing ? '高精度抽出を実行中...' : '抽出プロセスを開始'}
                   {!store.isProcessing && <ArrowRightIcon />}
                 </button>
               </div>
@@ -458,13 +476,17 @@ const App: React.FC = () => {
                                 <div className="font-bold text-slate-800 text-sm mb-1">{ind.metricName}</div>
                                 <div className="text-[10px] text-slate-400 font-bold mb-3 uppercase">判定基準: {ind.threshold}</div>
                                 <div className="bg-blue-50/50 p-3 rounded-xl border border-blue-50">
-                                  <p className="text-xs text-blue-800 font-medium leading-relaxed">
-                                    <span className="font-bold text-blue-600 mr-1">抽出事実:</span>
+                                  <p className="text-xs text-blue-800 font-medium leading-relaxed whitespace-pre-wrap">
+                                    <span className="font-bold text-blue-600 mr-1 block mb-1">抽出された事実・数値:</span>
                                     {fact?.factualValue || '資料に記載なし'}
                                   </p>
                                   {fact && fact.factualValue !== '記載なし' && (
-                                    <div className="mt-2 flex items-center gap-2 text-[10px] font-bold text-blue-400 bg-white/60 px-2 py-1 rounded-md border border-blue-100 inline-block">
-                                      {fact.evidenceSource} (p.{fact.pageNumber})
+                                    <div className="mt-3 pt-2 border-t border-blue-100/50 flex flex-wrap gap-2">
+                                      {fact.evidenceSource.split(', ').map((src, i) => (
+                                        <span key={i} className="text-[10px] font-bold text-blue-400 bg-white/60 px-2 py-1 rounded-md border border-blue-100">
+                                          {src}
+                                        </span>
+                                      ))}
                                     </div>
                                   )}
                                 </div>
@@ -559,16 +581,25 @@ const App: React.FC = () => {
       {/* Loading Overlay */}
       {store.isProcessing && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-md z-50 flex items-center justify-center animate-in fade-in duration-300">
-          <div className="bg-white p-10 rounded-3xl shadow-2xl text-center max-w-xs w-full">
+          <div className="bg-white p-10 rounded-3xl shadow-2xl text-center max-w-sm w-full">
             <div className="relative w-20 h-20 mx-auto mb-6">
               <div className="absolute inset-0 border-4 border-blue-100 rounded-full"></div>
               <div className="absolute inset-0 border-4 border-blue-600 rounded-full border-t-transparent animate-spin"></div>
             </div>
-            <p className="font-bold text-slate-900 text-lg mb-2">AIが解析中...</p>
-            <p className="text-slate-500 text-sm">
-              {progress > 0 ? `処理状況: ${progress}%` : "ドキュメントを論理的に処理しています。"}
-              <br />巨大なファイルは抽出に時間がかかる場合があります。
-            </p>
+            <p className="font-bold text-slate-900 text-lg mb-2">AIが高精度解析中...</p>
+            <div className="text-slate-500 text-sm space-y-2">
+              <p>巨大なドキュメントをページごとに細分化し、1項目ずつ執念深くスキャンしています。</p>
+              {progress > 0 && (
+                <div className="mt-4">
+                  <div className="w-full bg-slate-100 rounded-full h-2 mb-2">
+                    <div className="bg-blue-600 h-2 rounded-full transition-all duration-300" style={{ width: `${progress}%` }}></div>
+                  </div>
+                  <p className="text-[10px] font-bold text-blue-600 uppercase tracking-tighter">
+                    {statusMessage || `進捗: ${progress}%`}
+                  </p>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}
