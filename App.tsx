@@ -3,7 +3,13 @@ import React, { useState } from 'react';
 import { useAppStore } from './store';
 import { Step } from './types';
 import { Stepper } from './components/Stepper';
-import { analyzeNotice, extractIndicators, extractFactsFromFiles, generateFinalDecision } from './services/geminiService';
+import { 
+  extractTextFromPdf, 
+  analyzeNotice, 
+  extractIndicators, 
+  extractFactsFromTexts, 
+  generateFinalDecision 
+} from './services/geminiService';
 import { 
   UploadIcon, 
   FileTextIcon, 
@@ -17,6 +23,15 @@ import {
 const App: React.FC = () => {
   const store = useAppStore();
   const [progress, setProgress] = useState(0);
+
+  const getCachedText = async (file: File): Promise<string> => {
+    if (store.pdfTextCache[file.name]) {
+      return store.pdfTextCache[file.name];
+    }
+    const text = await extractTextFromPdf(file);
+    store.setPdfTextCache(file.name, text);
+    return text;
+  };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>, type: 'notice' | 'guideline' | 'evidence') => {
     const files = Array.from(e.target.files || []);
@@ -32,7 +47,8 @@ const App: React.FC = () => {
     store.setProcessing(true);
     store.setError(null);
     try {
-      const items = await analyzeNotice(store.noticeFile);
+      const text = await getCachedText(store.noticeFile);
+      const items = await analyzeNotice(text);
       store.setAgendaItems(items);
       store.setStep(Step.GUIDELINE_INDICATORS);
     } catch (err) {
@@ -48,7 +64,8 @@ const App: React.FC = () => {
     store.setProcessing(true);
     store.setError(null);
     try {
-      const indicators = await extractIndicators(store.guidelineFile, store.agendaItems);
+      const text = await getCachedText(store.guidelineFile);
+      const indicators = await extractIndicators(text, store.agendaItems);
       store.setIndicators(indicators);
       store.setStep(Step.DATA_EXTRACTION);
     } catch (err) {
@@ -65,12 +82,18 @@ const App: React.FC = () => {
     store.setError(null);
     setProgress(0);
     try {
-      // Step 3 constraint: Always include notice as the first document
       const filesToProcess = store.noticeFile ? [store.noticeFile, ...store.evidenceFiles] : store.evidenceFiles;
       
-      // We process files sequentially to ensure quality and handle large volumes
-      const allFacts = await extractFactsFromFiles(
-        filesToProcess, 
+      const textsToProcess: { name: string, text: string }[] = [];
+      for (let i = 0; i < filesToProcess.length; i++) {
+        const file = filesToProcess[i];
+        setProgress(Math.round(((i + 0.1) / filesToProcess.length) * 100)); // 抽出開始
+        const text = await getCachedText(file);
+        textsToProcess.push({ name: file.name, text });
+      }
+
+      const allFacts = await extractFactsFromTexts(
+        textsToProcess, 
         store.agendaItems, 
         store.indicators,
         (current, total) => setProgress(Math.round((current / total) * 100))
@@ -232,13 +255,30 @@ const App: React.FC = () => {
                   <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2">
                     <CheckIcon className="w-4 h-4" /> 抽出された議案 ({store.agendaItems.length})
                   </h3>
-                  <div className="space-y-3 max-h-80 overflow-y-auto pr-2 custom-scrollbar">
-                    {store.agendaItems.map((item) => (
-                      <div key={item.id} className="bg-white p-3 rounded-xl border border-slate-200 shadow-sm">
-                        <span className="text-xs font-bold text-blue-600 block mb-1">{item.number}</span>
-                        <p className="text-sm font-bold text-slate-800 line-clamp-2">{item.title}</p>
-                      </div>
-                    ))}
+                  <div className="space-y-6 max-h-[500px] overflow-y-auto pr-2 custom-scrollbar">
+                    {store.agendaItems.map((item) => {
+                      const agendaIndicators = store.indicators.filter(i => i.agendaId === item.id);
+                      return (
+                        <div key={item.id} className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm transition-all hover:border-blue-300">
+                          <span className="text-xs font-bold text-blue-600 block mb-1">{item.number}</span>
+                          <p className="text-sm font-bold text-slate-800 mb-3">{item.title}</p>
+                          
+                          {agendaIndicators.length > 0 ? (
+                            <div className="space-y-2 mt-2 border-t pt-3 border-slate-50">
+                              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">特定された指標:</p>
+                              {agendaIndicators.map(ind => (
+                                <div key={ind.id} className="text-[11px] bg-blue-50/50 p-2 rounded-lg border border-blue-100/50 text-slate-700">
+                                  <span className="font-bold text-blue-600 mr-1">指標:</span> {ind.metricName}
+                                  <div className="mt-1 text-[10px] text-slate-400">基準: {ind.threshold}</div>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="text-[10px] text-slate-300 italic mt-2">指標はまだ抽出されていません</p>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
                 <div className="flex flex-col justify-center">
@@ -289,13 +329,34 @@ const App: React.FC = () => {
                 <div className="lg:col-span-1 space-y-4">
                   <div className="bg-blue-50 p-5 rounded-2xl border border-blue-100">
                     <h3 className="font-bold text-blue-800 text-sm mb-4">対象とする判断指標:</h3>
-                    <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
-                      {store.indicators.map((ind) => (
-                        <div key={ind.id} className="bg-white p-3 rounded-xl border border-blue-100 shadow-sm text-xs">
-                          <div className="font-bold text-slate-800 mb-1">{ind.metricName}</div>
-                          <div className="text-blue-600 bg-blue-50 px-2 py-0.5 rounded inline-block font-semibold border border-blue-100">基準: {ind.threshold}</div>
+                    <div className="space-y-6 max-h-[500px] overflow-y-auto pr-2 custom-scrollbar">
+                      {store.agendaItems.map((agenda) => {
+                        const agendaIndicators = store.indicators.filter(i => i.agendaId === agenda.id);
+                        if (agendaIndicators.length === 0) return null;
+                        return (
+                          <div key={agenda.id} className="space-y-2 pb-4 border-b border-blue-100 last:border-0">
+                            <div className="flex items-center gap-2">
+                              <span className="text-[10px] font-black bg-blue-600 text-white px-1.5 py-0.5 rounded leading-none">{agenda.id}</span>
+                              <div className="text-[11px] font-bold text-slate-700 truncate">{agenda.title}</div>
+                            </div>
+                            <div className="space-y-2 pl-4">
+                              {agendaIndicators.map(ind => (
+                                <div key={ind.id} className="bg-white p-2.5 rounded-xl border border-blue-100 shadow-sm text-[11px]">
+                                  <div className="font-bold text-slate-800 mb-1">{ind.metricName}</div>
+                                  <div className="text-blue-600 bg-blue-50 px-2 py-0.5 rounded inline-block font-bold border border-blue-50/50">
+                                    基準: {ind.threshold}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })}
+                      {store.indicators.length === 0 && (
+                        <div className="text-center py-10 text-slate-400 text-xs italic">
+                          判断指標が抽出されていません。
                         </div>
-                      ))}
+                      )}
                     </div>
                   </div>
                 </div>
@@ -496,7 +557,7 @@ const App: React.FC = () => {
       </div>
       
       {/* Loading Overlay */}
-      {store.isProcessing && store.currentStep !== Step.DATA_EXTRACTION && (
+      {store.isProcessing && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-md z-50 flex items-center justify-center animate-in fade-in duration-300">
           <div className="bg-white p-10 rounded-3xl shadow-2xl text-center max-w-xs w-full">
             <div className="relative w-20 h-20 mx-auto mb-6">
@@ -504,7 +565,10 @@ const App: React.FC = () => {
               <div className="absolute inset-0 border-4 border-blue-600 rounded-full border-t-transparent animate-spin"></div>
             </div>
             <p className="font-bold text-slate-900 text-lg mb-2">AIが解析中...</p>
-            <p className="text-slate-500 text-sm">大規模なドキュメントを論理的に処理しています。少々お待ちください。</p>
+            <p className="text-slate-500 text-sm">
+              {progress > 0 ? `処理状況: ${progress}%` : "ドキュメントを論理的に処理しています。"}
+              <br />巨大なファイルは抽出に時間がかかる場合があります。
+            </p>
           </div>
         </div>
       )}

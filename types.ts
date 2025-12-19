@@ -44,6 +44,8 @@ export interface AppState {
   guidelineFile: File | null;
   evidenceFiles: File[];
   
+  pdfTextCache: Record<string, string>; // fileName -> extractedText
+  
   agendaItems: AgendaItem[];
   indicators: Indicator[];
   facts: FactEvidence[];

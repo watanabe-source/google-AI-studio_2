@@ -9,6 +9,8 @@ interface AppActions {
   addEvidenceFiles: (files: File[]) => void;
   removeEvidenceFile: (index: number) => void;
   
+  setPdfTextCache: (fileName: string, text: string) => void;
+  
   setAgendaItems: (items: AgendaItem[]) => void;
   setIndicators: (indicators: Indicator[]) => void;
   setFacts: (facts: FactEvidence[]) => void;
@@ -24,6 +26,7 @@ const initialState: AppState = {
   noticeFile: null,
   guidelineFile: null,
   evidenceFiles: [],
+  pdfTextCache: {},
   agendaItems: [],
   indicators: [],
   facts: [],
@@ -41,6 +44,10 @@ export const useAppStore = create<AppState & AppActions>((set) => ({
   addEvidenceFiles: (files) => set((state) => ({ evidenceFiles: [...state.evidenceFiles, ...files] })),
   removeEvidenceFile: (index) => set((state) => ({ 
     evidenceFiles: state.evidenceFiles.filter((_, i) => i !== index) 
+  })),
+  
+  setPdfTextCache: (fileName, text) => set((state) => ({
+    pdfTextCache: { ...state.pdfTextCache, [fileName]: text }
   })),
   
   setAgendaItems: (items) => set({ agendaItems: items }),
