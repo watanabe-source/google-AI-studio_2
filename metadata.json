@@ -1,0 +1,5 @@
+{
+  "name": "議決権行使判断支援アプリ (Voter Decision Support)",
+  "description": "株主総会の招集通知、ガイドライン、有価証券報告書をAIで解析し、論理的な議決権行使の賛否判断を支援するエンタープライズ向けツールです。",
+  "requestFramePermissions": []
+}
